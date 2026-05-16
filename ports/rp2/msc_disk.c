@@ -27,6 +27,7 @@
 #include "mpconfigboard.h"
 #include "hardware/flash.h"
 #include "hardware/sync.h"
+#include "hardware/watchdog.h"
 #include "pico/stdlib.h"
 
 // This implementation does Not support Flash sector caching.
@@ -39,7 +40,24 @@
 #define FLASH_BASE_ADDR     (PICO_FLASH_SIZE_BYTES - MICROPY_HW_FLASH_STORAGE_BYTES)
 #define FLASH_MMAP_ADDR     (XIP_BASE + FLASH_BASE_ADDR)
 
+#define WRITE_BUSY_STATUS_TIMEOUT 1000000llu
+
 static bool ejected = false;
+static bool ready = false;
+static absolute_time_t last_write = 0;
+
+bool rp2_tud_set_msc_ready() {
+    if(ready) {
+        return false;
+    }
+    ready = true;
+    return true;
+}
+
+bool rp2_tud_is_msc_busy() {
+    if(last_write == 0) return false;
+    return  absolute_time_diff_us(last_write, get_absolute_time()) < WRITE_BUSY_STATUS_TIMEOUT;
+}
 
 // Invoked when received SCSI_CMD_INQUIRY
 // Application fill vendor id, product id and revision with string up to 8, 16, 4 characters respectively
@@ -52,7 +70,7 @@ void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16
 // Invoked when received Test Unit Ready command.
 // return true allowing host to read/write this LUN e.g SD card inserted
 bool tud_msc_test_unit_ready_cb(uint8_t lun) {
-    if (ejected) {
+    if (ejected || !ready) {
         tud_msc_set_sense(lun, SCSI_SENSE_NOT_READY, 0x3a, 0x00);
         return false;
     }
@@ -77,6 +95,7 @@ bool tud_msc_start_stop_cb(uint8_t lun, uint8_t power_condition, bool start, boo
         } else {
             // unload disk storage
             ejected = true;
+            watchdog_reboot(0, 0, 0);
         }
     }
     return true;
@@ -93,6 +112,7 @@ int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void *buff
 // Callback invoked when received WRITE10 command.
 // Process data in buffer to disk's storage and return number of written bytes
 int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
+    last_write = get_absolute_time();
     uint32_t count = bufsize / BLOCK_SIZE;
     uint32_t ints = save_and_disable_interrupts();
     flash_range_erase(FLASH_BASE_ADDR + lba * BLOCK_SIZE, count * BLOCK_SIZE);
