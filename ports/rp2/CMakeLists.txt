@@ -492,7 +492,7 @@ list(APPEND MICROPY_SOURCE_QSTR
 if (${PICO_PLATFORM} STREQUAL "rp2040")
     set(MICROPY_CROSS_FLAGS "-march=armv6m")
 elseif (${PICO_PLATFORM} STREQUAL "rp2350-arm-s")
-    set(MICROPY_CROSS_FLAGS "-march=armv7m")
+    set(MICROPY_CROSS_FLAGS "-march=armv7emsp")
 elseif (${PICO_PLATFORM} STREQUAL "rp2350-riscv")
     set(MICROPY_CROSS_FLAGS "-march=rv32imc -march-flags=zba,zcmp")
 else()
